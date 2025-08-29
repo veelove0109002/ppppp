@@ -410,6 +410,10 @@ EOF
             echo "成功下载了一些IPK包，继续创建安装包..."
           fi
 
+      - name: 获取日期
+        id: date
+        run: echo "date=$(date)" >> $GITHUB_OUTPUT
+
       - name: 准备构建产物
         run: |
           # 创建产物目录
@@ -483,7 +487,7 @@ EOF
           #!/bin/sh
           # PassWall for iStoreOS 自解压安装包
           # 由GitHub Actions自动构建 - ${{ github.run_id }}
-          # 构建时间: $(date)
+          # 构建时间: ${{ steps.date.outputs.date }}
           # 目标架构: ${{ inputs.target_arch }}
           
           echo "正在解压PassWall安装包..."
@@ -500,7 +504,7 @@ EOF
           cp passwall-installer.run ./artifact/installer/
           
           # 创建版本信息文件
-          echo "构建时间: $(date)" > version.txt
+          echo "构建时间: ${{ steps.date.outputs.date }}" > version.txt
           echo "目标架构: ${{ inputs.target_arch }}" >> version.txt
           echo "GitHub Actions运行ID: ${{ github.run_id }}" >> version.txt
           echo "提交SHA: ${{ github.sha }}" >> version.txt
@@ -535,10 +539,10 @@ EOF
           draft: false
           prerelease: false
           generate_release_notes: true
-          body: |
+          body: >-
             ## PassWall for iStoreOS - ${{ inputs.target_arch }}
             
-            构建时间: $(date)
+            构建时间: ${{ steps.date.outputs.date }}
             目标架构: ${{ inputs.target_arch }}
             GitHub Actions运行ID: ${{ github.run_id }}
             
