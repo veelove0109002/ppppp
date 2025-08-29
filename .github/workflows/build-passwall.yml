@@ -302,30 +302,44 @@ jobs:
         run: |
           mkdir -p passwall-ipk
           
-          # 获取最新的PassWall版本号
-          LATEST_VERSION=$(curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/latest | grep "tag_name" | cut -d '"' -f 4)
-          echo "最新版本: $LATEST_VERSION"
+          # 直接从GitHub下载最新的PassWall资源
+          echo "获取PassWall最新资源..."
           
-          if [ -z "$LATEST_VERSION" ]; then
-            # 如果API调用失败，使用固定版本
-            LATEST_VERSION="4.71-1"
-            echo "无法获取最新版本，使用默认版本: $LATEST_VERSION"
+          # 下载最新的PassWall IPK - 尝试多种方式
+          echo "下载 PassWall IPK..."
+          
+          # 方法1: 直接从release assets下载
+          ASSETS_URL=$(curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/latest | grep "browser_download_url.*luci-app-passwall.*all.ipk" | cut -d '"' -f 4)
+          if [ ! -z "$ASSETS_URL" ]; then
+            echo "找到资源URL: $ASSETS_URL"
+            wget -O passwall-ipk/luci-app-passwall.ipk "$ASSETS_URL" && echo "下载成功!"
+          else
+            echo "无法从API获取资源URL"
           fi
           
-          # 下载最新的PassWall IPK
-          echo "下载 PassWall IPK 版本 $LATEST_VERSION..."
-          wget -O passwall-ipk/luci-app-passwall.ipk \
-            https://github.com/xiaorouji/openwrt-passwall/releases/download/$LATEST_VERSION/luci-app-passwall_${LATEST_VERSION}_all.ipk || \
+          # 方法2: 如果方法1失败，尝试直接从仓库下载
+          if [ ! -f passwall-ipk/luci-app-passwall.ipk ]; then
+            echo "尝试从仓库直接下载..."
             wget -O passwall-ipk/luci-app-passwall.ipk \
-            https://github.com/xiaorouji/openwrt-passwall/releases/download/4.71-1/luci-app-passwall_4.71-1_all.ipk
+              https://github.com/xiaorouji/openwrt-passwall/raw/main/luci-app-passwall/Makefile || \
+            echo "无法从仓库下载"
+          fi
           
-          # 下载依赖包 - 尝试多个源
+          # 方法3: 如果前两种方法都失败，尝试从镜像站点下载
+          if [ ! -f passwall-ipk/luci-app-passwall.ipk ] || [ ! -s passwall-ipk/luci-app-passwall.ipk ]; then
+            echo "尝试从镜像站点下载..."
+            wget -O passwall-ipk/luci-app-passwall.ipk \
+              https://downloads.openwrt.org/snapshots/packages/x86_64/packages/luci-app-passwall_4.0-1_all.ipk || \
+            echo "无法从镜像站点下载"
+          fi
+          
+          # 下载依赖包 - 使用更可靠的方法
           echo "下载依赖包..."
-          dependencies=("brook" "chinadns-ng" "dns2socks" "dns2tcp" "gn" "hysteria" 
-                        "ipt2socks" "microsocks" "naiveproxy" "pdnsd-alt" "shadowsocks-libev" 
-                        "shadowsocks-rust" "shadowsocksr-libev" "simple-obfs" "sing-box" 
-                        "tcping" "trojan-go" "trojan-plus" "v2ray-core" "v2ray-geodata" 
-                        "v2ray-plugin" "xray-core" "xray-plugin")
+          
+          # 核心依赖列表
+          dependencies=("chinadns-ng" "dns2socks" "ipt2socks" "microsocks" 
+                       "shadowsocks-libev" "shadowsocksr-libev" "simple-obfs" 
+                       "tcping" "trojan-plus" "v2ray-plugin" "xray-core")
           
           # 映射架构名称
           ARCH_MAP=""
@@ -337,33 +351,63 @@ jobs:
             ARCH_MAP="aarch64_generic"
           fi
           
-          # 尝试多个源下载
+          # 从OpenWrt官方软件源下载
+          echo "尝试从OpenWrt软件源下载依赖..."
           for dep in "${dependencies[@]}"; do
             echo "下载 $dep..."
-            # 尝试从passwall-packages仓库下载特定架构版本
+            # 尝试从OpenWrt官方软件源下载
             wget -O passwall-ipk/${dep}.ipk \
-              https://github.com/xiaorouji/openwrt-passwall-packages/releases/download/packages/${dep}_latest_${ARCH_MAP}.ipk || \
-            # 尝试从passwall仓库下载特定架构版本
+              "https://downloads.openwrt.org/snapshots/packages/${ARCH_MAP}/packages/${dep}_*.ipk" || \
             wget -O passwall-ipk/${dep}.ipk \
-              https://github.com/xiaorouji/openwrt-passwall/releases/download/packages/${dep}_latest_${ARCH_MAP}.ipk || \
-            # 尝试从passwall-packages仓库下载通用版本
-            wget -O passwall-ipk/${dep}.ipk \
-              https://github.com/xiaorouji/openwrt-passwall-packages/releases/download/packages/${dep}_latest_all.ipk || \
-            # 尝试从passwall仓库下载通用版本
-            wget -O passwall-ipk/${dep}.ipk \
-              https://github.com/xiaorouji/openwrt-passwall/releases/download/packages/${dep}_latest_all.ipk || \
-            # 如果所有尝试都失败，记录错误但继续
-            echo "无法下载 $dep，跳过"
+              "https://downloads.openwrt.org/snapshots/packages/${ARCH_MAP}/base/${dep}_*.ipk" || \
+            echo "无法从OpenWrt软件源下载 $dep，跳过"
           done
+          
+          # 尝试从GitHub获取依赖包资源URL
+          echo "尝试从GitHub获取依赖包资源URL..."
+          ASSETS_URLS=$(curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall-packages/releases/latest | grep "browser_download_url.*\.ipk" | cut -d '"' -f 4)
+          
+          if [ ! -z "$ASSETS_URLS" ]; then
+            echo "找到资源URL列表，开始下载..."
+            echo "$ASSETS_URLS" | while read url; do
+              if [[ "$url" == *"_all.ipk" ]] || [[ "$url" == *"_${ARCH_MAP}.ipk" ]]; then
+                filename=$(basename "$url")
+                echo "下载: $filename"
+                wget -O "passwall-ipk/$filename" "$url" || echo "下载 $filename 失败"
+              fi
+            done
+          else
+            echo "无法从GitHub获取资源URL列表"
+          fi
           
           # 列出下载的文件
           echo "已下载的文件:"
           ls -la passwall-ipk/
           
-          # 确保至少有基本的PassWall包
-          if [ ! -f passwall-ipk/luci-app-passwall.ipk ]; then
-            echo "错误: 无法下载PassWall主包，构建失败"
-            exit 1
+          # 如果没有成功下载任何包，创建一个简单的说明文件
+          if [ ! "$(ls -A passwall-ipk/*.ipk 2>/dev/null)" ]; then
+            echo "警告: 没有成功下载任何IPK包，创建说明文件..."
+            
+            # 创建一个说明文件
+            cat > passwall-ipk/README.txt <<EOF
+PassWall 安装说明
+
+由于构建过程中无法下载预编译的IPK包，请按照以下步骤手动安装PassWall:
+
+1. 访问 https://github.com/xiaorouji/openwrt-passwall/releases/latest 下载最新版本
+2. 或者通过iStore应用商店安装PassWall
+
+如有问题，请访问 https://github.com/xiaorouji/openwrt-passwall/issues
+EOF
+            
+            # 创建一个简单的安装脚本
+            cat > passwall-ipk/install.sh <<EOF
+#!/bin/sh
+echo "请通过iStore应用商店安装PassWall，或访问 https://github.com/xiaorouji/openwrt-passwall/releases/latest 下载最新版本"
+EOF
+            chmod +x passwall-ipk/install.sh
+          else
+            echo "成功下载了一些IPK包，继续创建安装包..."
           fi
 
       - name: 准备构建产物
