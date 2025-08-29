@@ -151,10 +151,16 @@ jobs:
           echo '  opkg install "$ipk" || echo "警告: 安装 $(basename $ipk) 失败，继续安装其他包"' >> install_script.txt
           echo 'done' >> install_script.txt
           echo '' >> install_script.txt
-          echo '# 重启网络和服务' >> install_script.txt
+          echo '# 重启服务但保留登录状态' >> install_script.txt
           echo 'echo "正在重启服务..."' >> install_script.txt
-          echo '/etc/init.d/rpcd restart' >> install_script.txt
-          echo '/etc/init.d/network restart' >> install_script.txt
+          echo '/etc/init.d/rpcd reload > /dev/null 2>&1 || /etc/init.d/rpcd restart > /dev/null 2>&1' >> install_script.txt
+          echo '# 不重启网络服务，避免断开连接和丢失登录状态' >> install_script.txt
+          echo '# 仅重载必要的PassWall服务' >> install_script.txt
+          echo 'for svc in /etc/init.d/passwall*; do' >> install_script.txt
+          echo '  if [ -x "$svc" ]; then' >> install_script.txt
+          echo '    "$svc" reload > /dev/null 2>&1 || "$svc" restart > /dev/null 2>&1' >> install_script.txt
+          echo '  fi' >> install_script.txt
+          echo 'done' >> install_script.txt
           echo '' >> install_script.txt
           echo '# 清理' >> install_script.txt
           echo 'rm -rf /tmp/passwall-install' >> install_script.txt
