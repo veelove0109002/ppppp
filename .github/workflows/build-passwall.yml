@@ -156,6 +156,16 @@ jobs:
           EOF
           fi
           
+          # 添加工具链相关配置
+          cat >> .config <<EOF
+          CONFIG_DEVEL=y
+          CONFIG_TOOLCHAINOPTS=y
+          CONFIG_NEED_TOOLCHAIN=y
+          CONFIG_NEED_LIBC=y
+          CONFIG_NEED_LIBC_CHECK=y
+          CONFIG_LIBC_USE_MUSL=y
+          EOF
+          
           # 添加PassWall基本配置
           cat >> .config <<EOF
           CONFIG_PACKAGE_luci-app-passwall=y
@@ -239,13 +249,31 @@ jobs:
           make download -j16 || make download -j1 V=s
           echo "下载完成"
 
+      - name: 编译工具链
+        run: |
+          cd istoreos
+          echo "开始编译工具链..."
+          make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
+          
+          echo "工具链目录内容:"
+          ls -la staging_dir/toolchain-*/ || true
+          ls -la staging_dir/toolchain-*/lib/ || true
+
       - name: 编译 PassWall
         id: compile
         run: |
           cd istoreos
           # 先尝试编译整个包
           echo "开始编译 PassWall..."
-          make package/feeds/passwall_luci/luci-app-passwall/compile -j$(nproc) || make package/feeds/passwall_luci/luci-app-passwall/compile -j1 V=s
+          
+          # 先编译依赖
+          echo "编译基础依赖..."
+          make package/libs/toolchain/compile -j$(nproc) || make package/libs/toolchain/compile -j1 V=s || true
+          make package/utils/lua/host-compile -j$(nproc) || make package/utils/lua/host-compile -j1 V=s || true
+          
+          # 尝试编译PassWall
+          echo "编译 PassWall..."
+          make package/feeds/passwall_luci/luci-app-passwall/compile -j$(nproc) || make package/feeds/passwall_luci/luci-app-passwall/compile -j1 V=s || true
           
           # 检查是否成功编译
           if find bin/packages -name "luci-app-passwall*.ipk" | grep -q .; then
@@ -291,7 +319,7 @@ jobs:
             wget -O passwall-ipk/luci-app-passwall.ipk \
             https://github.com/xiaorouji/openwrt-passwall/releases/download/4.71-1/luci-app-passwall_4.71-1_all.ipk
           
-          # 下载依赖包
+          # 下载依赖包 - 尝试多个源
           echo "下载依赖包..."
           dependencies=("brook" "chinadns-ng" "dns2socks" "dns2tcp" "gn" "hysteria" 
                         "ipt2socks" "microsocks" "naiveproxy" "pdnsd-alt" "shadowsocks-libev" 
@@ -299,18 +327,44 @@ jobs:
                         "tcping" "trojan-go" "trojan-plus" "v2ray-core" "v2ray-geodata" 
                         "v2ray-plugin" "xray-core" "xray-plugin")
           
+          # 映射架构名称
+          ARCH_MAP=""
+          if [ "${{ inputs.target_arch }}" == "x86_64" ]; then
+            ARCH_MAP="x86_64"
+          elif [ "${{ inputs.target_arch }}" == "aarch64_cortex-a53" ]; then
+            ARCH_MAP="aarch64_cortex-a53"
+          else
+            ARCH_MAP="aarch64_generic"
+          fi
+          
+          # 尝试多个源下载
           for dep in "${dependencies[@]}"; do
             echo "下载 $dep..."
+            # 尝试从passwall-packages仓库下载特定架构版本
             wget -O passwall-ipk/${dep}.ipk \
-              https://github.com/xiaorouji/openwrt-passwall-packages/releases/download/packages/${dep}_latest_${{ inputs.target_arch }}.ipk || \
+              https://github.com/xiaorouji/openwrt-passwall-packages/releases/download/packages/${dep}_latest_${ARCH_MAP}.ipk || \
+            # 尝试从passwall仓库下载特定架构版本
+            wget -O passwall-ipk/${dep}.ipk \
+              https://github.com/xiaorouji/openwrt-passwall/releases/download/packages/${dep}_latest_${ARCH_MAP}.ipk || \
+            # 尝试从passwall-packages仓库下载通用版本
+            wget -O passwall-ipk/${dep}.ipk \
+              https://github.com/xiaorouji/openwrt-passwall-packages/releases/download/packages/${dep}_latest_all.ipk || \
+            # 尝试从passwall仓库下载通用版本
             wget -O passwall-ipk/${dep}.ipk \
               https://github.com/xiaorouji/openwrt-passwall/releases/download/packages/${dep}_latest_all.ipk || \
+            # 如果所有尝试都失败，记录错误但继续
             echo "无法下载 $dep，跳过"
           done
           
           # 列出下载的文件
           echo "已下载的文件:"
           ls -la passwall-ipk/
+          
+          # 确保至少有基本的PassWall包
+          if [ ! -f passwall-ipk/luci-app-passwall.ipk ]; then
+            echo "错误: 无法下载PassWall主包，构建失败"
+            exit 1
+          fi
 
       - name: 准备构建产物
         run: |
