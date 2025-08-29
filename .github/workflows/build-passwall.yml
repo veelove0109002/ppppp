@@ -292,54 +292,52 @@ jobs:
           fi
           
           # 创建安装脚本
-          cat > passwall-install.sh <<EOF
-          #!/bin/sh
-          # PassWall installer for iStoreOS
-          # 版本: ${{ env.LATEST_VERSION }}
-          # 构建时间: ${{ steps.date.outputs.date }}
-          
-          echo "开始安装 PassWall ${{ env.LATEST_VERSION }} for iStoreOS..."
-          
-          # 检查IPK文件
-          if [ ! -d /tmp/passwall-ipk ]; then
-            echo "错误: 找不到IPK文件目录"
-            exit 1
-          fi
-          
-          IPK_COUNT=\$(ls -1 /tmp/passwall-ipk/*.ipk 2>/dev/null | wc -l)
-          if [ "\$IPK_COUNT" -eq 0 ]; then
-            echo "错误: 找不到任何IPK文件"
-            exit 1
-          fi
-          
-          echo "找到 \$IPK_COUNT 个IPK文件"
-          
-          # 创建临时目录
-          mkdir -p /tmp/passwall-install
-          
-          # 安装依赖
-          echo "正在更新软件包列表..."
-          opkg update
-          
-          echo "正在安装基本依赖..."
-          opkg install libuci-lua luci-compat luci-lib-jsonc
-          
-          # 安装PassWall及其依赖
-          echo "正在安装PassWall及其依赖..."
-          for ipk in /tmp/passwall-ipk/*.ipk; do
-            echo "安装: \$(basename \$ipk)"
-            opkg install "\$ipk" || echo "警告: 安装 \$(basename \$ipk) 失败，继续安装其他包"
-          done
-          
-          # 重启网络和服务
-          echo "正在重启服务..."
-          /etc/init.d/rpcd restart
-          /etc/init.d/network restart
-          
-          # 清理
-          rm -rf /tmp/passwall-install
-          echo "PassWall ${{ env.LATEST_VERSION }} 安装完成！请在LuCI界面中访问服务→PassWall"
-          EOF
+          cat > passwall-install.sh <<'EOF'
+#!/bin/sh
+# PassWall installer for iStoreOS
+
+echo "开始安装 PassWall for iStoreOS..."
+
+# 检查IPK文件
+if [ ! -d /tmp/passwall-ipk ]; then
+  echo "错误: 找不到IPK文件目录"
+  exit 1
+fi
+
+IPK_COUNT=$(ls -1 /tmp/passwall-ipk/*.ipk 2>/dev/null | wc -l)
+if [ "$IPK_COUNT" -eq 0 ]; then
+  echo "错误: 找不到任何IPK文件"
+  exit 1
+fi
+
+echo "找到 $IPK_COUNT 个IPK文件"
+
+# 创建临时目录
+mkdir -p /tmp/passwall-install
+
+# 安装依赖
+echo "正在更新软件包列表..."
+opkg update
+
+echo "正在安装基本依赖..."
+opkg install libuci-lua luci-compat luci-lib-jsonc
+
+# 安装PassWall及其依赖
+echo "正在安装PassWall及其依赖..."
+for ipk in /tmp/passwall-ipk/*.ipk; do
+  echo "安装: $(basename $ipk)"
+  opkg install "$ipk" || echo "警告: 安装 $(basename $ipk) 失败，继续安装其他包"
+done
+
+# 重启网络和服务
+echo "正在重启服务..."
+/etc/init.d/rpcd restart
+/etc/init.d/network restart
+
+# 清理
+rm -rf /tmp/passwall-install
+echo "PassWall 安装完成！请在LuCI界面中访问服务→PassWall"
+EOF
           
           chmod +x passwall-install.sh
           
@@ -351,21 +349,19 @@ jobs:
           
           # 创建自解压安装包
           echo "创建自解压安装包..."
-          cat > passwall-installer.run <<EOF
-          #!/bin/sh
-          # PassWall ${{ env.LATEST_VERSION }} for iStoreOS 自解压安装包
-          # 由GitHub Actions自动构建 - ${{ github.run_id }}
-          # 构建时间: ${{ steps.date.outputs.date }}
-          # 目标架构: ${{ inputs.target_arch }}
-          
-          echo "正在解压PassWall ${{ env.LATEST_VERSION }} 安装包..."
-          ARCHIVE=\`awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' \$0\`
-          tail -n+\$ARCHIVE \$0 | tar -xz -C /tmp
-          echo "正在运行安装脚本..."
-          /tmp/passwall-install.sh
-          exit 0
-          __ARCHIVE_BELOW__
-          EOF
+          cat > passwall-installer.run <<'EOF'
+#!/bin/sh
+# PassWall for iStoreOS 自解压安装包
+# 由GitHub Actions自动构建
+
+echo "正在解压PassWall安装包..."
+ARCHIVE=`awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' $0`
+tail -n+$ARCHIVE $0 | tar -xz -C /tmp
+echo "正在运行安装脚本..."
+/tmp/passwall-install.sh
+exit 0
+__ARCHIVE_BELOW__
+EOF
           
           # 使用版本号命名安装包
           INSTALLER_FILENAME="passwall-installer-${{ inputs.target_arch }}-${{ env.LATEST_VERSION }}.run"
