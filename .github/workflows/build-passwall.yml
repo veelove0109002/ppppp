@@ -527,6 +527,29 @@ EOF
           name: passwall-installer-${{ inputs.target_arch }}
           path: ./artifact/installer/
 
+      - name: 创建发布说明
+        id: release_notes
+        run: |
+          cat > release_notes.md << EOF
+          ## PassWall for iStoreOS - ${{ inputs.target_arch }}
+          
+          构建时间: ${{ steps.date.outputs.date }}
+          目标架构: ${{ inputs.target_arch }}
+          GitHub Actions运行ID: ${{ github.run_id }}
+          
+          ### 构建选项
+          - 代理类型: ${{ inputs.proxy_type }}
+          - 核心选择: ${{ inputs.core_selection }}
+          - 包含服务端组件: ${{ inputs.include_servers }}
+          - 包含高级组件: ${{ inputs.include_advanced }}
+          
+          ### 安装方法
+          
+          1. 下载 \`passwall-installer.run\` 文件到路由器
+          2. 执行 \`chmod +x passwall-installer.run && ./passwall-installer.run\`
+          3. 安装完成后，在LuCI界面中访问服务→PassWall
+          EOF
+
       - name: 创建发布
         id: create_release
         uses: softprops/action-gh-release@v1
@@ -539,18 +562,7 @@ EOF
           draft: false
           prerelease: false
           generate_release_notes: true
-          body: >-
-            ## PassWall for iStoreOS - ${{ inputs.target_arch }}
-            
-            构建时间: ${{ steps.date.outputs.date }}
-            目标架构: ${{ inputs.target_arch }}
-            GitHub Actions运行ID: ${{ github.run_id }}
-            
-            ### 构建选项
-            - 代理类型: ${{ inputs.proxy_type }}
-            - 核心选择: ${{ inputs.core_selection }}
-            - 包含服务端组件: ${{ inputs.include_servers }}
-            - 包含高级组件: ${{ inputs.include_advanced }}
+          body_path: release_notes.md
             
             ### 安装方法
             
