@@ -114,53 +114,51 @@ jobs:
 
       - name: 创建安装包
         run: |
-          # 创建安装脚本
-          cat > install_script.txt << 'EOFSCRIPT'
-#!/bin/sh
-# PassWall installer for iStoreOS
-
-echo "开始安装 PassWall for iStoreOS..."
-
-# 检查IPK文件
-if [ ! -d /tmp/passwall-ipk ]; then
-  echo "错误: 找不到IPK文件目录"
-  exit 1
-fi
-
-IPK_COUNT=$(ls -1 /tmp/passwall-ipk/*.ipk 2>/dev/null | wc -l)
-if [ "$IPK_COUNT" -eq 0 ]; then
-  echo "错误: 找不到任何IPK文件"
-  exit 1
-fi
-
-echo "找到 $IPK_COUNT 个IPK文件"
-
-# 创建临时目录
-mkdir -p /tmp/passwall-install
-
-# 安装依赖
-echo "正在更新软件包列表..."
-opkg update
-
-echo "正在安装基本依赖..."
-opkg install libuci-lua luci-compat luci-lib-jsonc
-
-# 安装PassWall及其依赖
-echo "正在安装PassWall及其依赖..."
-for ipk in /tmp/passwall-ipk/*.ipk; do
-  echo "安装: $(basename $ipk)"
-  opkg install "$ipk" || echo "警告: 安装 $(basename $ipk) 失败，继续安装其他包"
-done
-
-# 重启网络和服务
-echo "正在重启服务..."
-/etc/init.d/rpcd restart
-/etc/init.d/network restart
-
-# 清理
-rm -rf /tmp/passwall-install
-echo "PassWall 安装完成！请在LuCI界面中访问服务→PassWall"
-EOFSCRIPT
+          # 创建安装脚本 - 使用echo逐行写入而不是heredoc
+          echo '#!/bin/sh' > install_script.txt
+          echo '# PassWall installer for iStoreOS' >> install_script.txt
+          echo '' >> install_script.txt
+          echo 'echo "开始安装 PassWall for iStoreOS..."' >> install_script.txt
+          echo '' >> install_script.txt
+          echo '# 检查IPK文件' >> install_script.txt
+          echo 'if [ ! -d /tmp/passwall-ipk ]; then' >> install_script.txt
+          echo '  echo "错误: 找不到IPK文件目录"' >> install_script.txt
+          echo '  exit 1' >> install_script.txt
+          echo 'fi' >> install_script.txt
+          echo '' >> install_script.txt
+          echo 'IPK_COUNT=$(ls -1 /tmp/passwall-ipk/*.ipk 2>/dev/null | wc -l)' >> install_script.txt
+          echo 'if [ "$IPK_COUNT" -eq 0 ]; then' >> install_script.txt
+          echo '  echo "错误: 找不到任何IPK文件"' >> install_script.txt
+          echo '  exit 1' >> install_script.txt
+          echo 'fi' >> install_script.txt
+          echo '' >> install_script.txt
+          echo 'echo "找到 $IPK_COUNT 个IPK文件"' >> install_script.txt
+          echo '' >> install_script.txt
+          echo '# 创建临时目录' >> install_script.txt
+          echo 'mkdir -p /tmp/passwall-install' >> install_script.txt
+          echo '' >> install_script.txt
+          echo '# 安装依赖' >> install_script.txt
+          echo 'echo "正在更新软件包列表..."' >> install_script.txt
+          echo 'opkg update' >> install_script.txt
+          echo '' >> install_script.txt
+          echo 'echo "正在安装基本依赖..."' >> install_script.txt
+          echo 'opkg install libuci-lua luci-compat luci-lib-jsonc' >> install_script.txt
+          echo '' >> install_script.txt
+          echo '# 安装PassWall及其依赖' >> install_script.txt
+          echo 'echo "正在安装PassWall及其依赖..."' >> install_script.txt
+          echo 'for ipk in /tmp/passwall-ipk/*.ipk; do' >> install_script.txt
+          echo '  echo "安装: $(basename $ipk)"' >> install_script.txt
+          echo '  opkg install "$ipk" || echo "警告: 安装 $(basename $ipk) 失败，继续安装其他包"' >> install_script.txt
+          echo 'done' >> install_script.txt
+          echo '' >> install_script.txt
+          echo '# 重启网络和服务' >> install_script.txt
+          echo 'echo "正在重启服务..."' >> install_script.txt
+          echo '/etc/init.d/rpcd restart' >> install_script.txt
+          echo '/etc/init.d/network restart' >> install_script.txt
+          echo '' >> install_script.txt
+          echo '# 清理' >> install_script.txt
+          echo 'rm -rf /tmp/passwall-install' >> install_script.txt
+          echo 'echo "PassWall 安装完成！请在LuCI界面中访问服务→PassWall"' >> install_script.txt
 
           # 复制到最终文件
           cp install_script.txt passwall-install.sh
@@ -172,20 +170,18 @@ EOFSCRIPT
           TAR_SIZE=$(du -sh passwall-package.tar.gz | cut -f1)
           echo "tar包大小: $TAR_SIZE"
           
-          # 创建自解压安装包
-          cat > installer_script.txt << 'EOFINSTALLER'
-#!/bin/sh
-# PassWall for iStoreOS 自解压安装包
-# 由GitHub Actions自动构建
-
-echo "正在解压PassWall安装包..."
-ARCHIVE=`awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' $0`
-tail -n+$ARCHIVE $0 | tar -xz -C /tmp
-echo "正在运行安装脚本..."
-/tmp/passwall-install.sh
-exit 0
-__ARCHIVE_BELOW__
-EOFINSTALLER
+          # 创建自解压安装包 - 使用echo逐行写入而不是heredoc
+          echo '#!/bin/sh' > installer_script.txt
+          echo '# PassWall for iStoreOS 自解压安装包' >> installer_script.txt
+          echo '# 由GitHub Actions自动构建' >> installer_script.txt
+          echo '' >> installer_script.txt
+          echo 'echo "正在解压PassWall安装包..."' >> installer_script.txt
+          echo 'ARCHIVE=`awk '"'"'/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }'"'"' $0`' >> installer_script.txt
+          echo 'tail -n+$ARCHIVE $0 | tar -xz -C /tmp' >> installer_script.txt
+          echo 'echo "正在运行安装脚本..."' >> installer_script.txt
+          echo '/tmp/passwall-install.sh' >> installer_script.txt
+          echo 'exit 0' >> installer_script.txt
+          echo '__ARCHIVE_BELOW__' >> installer_script.txt
 
           # 复制到最终文件
           cp installer_script.txt passwall-installer.run
