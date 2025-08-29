@@ -538,11 +538,5 @@ EOF
           prerelease: false
           generate_release_notes: true
           body_path: release_notes.md
-            
-            ### 安装方法
-            
-            1. 下载 `passwall-installer.run` 文件到路由器
-            2. 执行 `chmod +x passwall-installer.run && ./passwall-installer.run`
-            3. 安装完成后，在LuCI界面中访问服务→PassWall
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
