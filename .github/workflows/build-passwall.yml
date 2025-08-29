@@ -139,9 +139,11 @@ jobs:
             # 尝试下载压缩包
             echo "尝试下载PassWall压缩包..."
             wget -O passwall-ipk/passwall_packages.zip \
-              "https://github.com/xiaorouji/openwrt-passwall/releases/download/${LATEST_VERSION}/passwall_packages_ipk_x86_64.zip" || \
+              "https://github.com/xiaorouji/openwrt-passwall/releases/download/${LATEST_VERSION}/passwall_packages_ipk_${ARCH_MAP}.zip" || \
             wget -O passwall-ipk/passwall_packages.zip \
-              "https://github.com/xiaorouji/openwrt-passwall/releases/download/${LATEST_VERSION}/passwall_packages_ipk.zip"
+              "https://github.com/xiaorouji/openwrt-passwall/releases/download/${LATEST_VERSION}/passwall_packages_ipk.zip" || \
+            wget -O passwall-ipk/passwall_packages.zip \
+              "https://github.com/xiaorouji/openwrt-passwall/releases/latest/download/passwall_packages_ipk_${ARCH_MAP}.zip"
             
             # 如果下载成功，解压缩
             if [ -f passwall-ipk/passwall_packages.zip ] && [ -s passwall-ipk/passwall_packages.zip ]; then
@@ -203,9 +205,11 @@ jobs:
           # 尝试下载依赖包压缩包
           echo "尝试下载依赖包压缩包..."
           wget -O passwall-ipk/passwall-packages.zip \
-            "https://github.com/xiaorouji/openwrt-passwall-packages/releases/download/packages/passwall-packages_${ARCH_MAP}.zip" || \
+            "https://github.com/xiaorouji/openwrt-passwall/releases/download/${LATEST_VERSION}/passwall_packages_ipk_${ARCH_MAP}.zip" || \
           wget -O passwall-ipk/passwall-packages.zip \
-            "https://github.com/xiaorouji/openwrt-passwall-packages/releases/latest/download/passwall-packages_${ARCH_MAP}.zip"
+            "https://github.com/xiaorouji/openwrt-passwall/releases/download/${LATEST_VERSION}/passwall_packages_ipk.zip" || \
+          wget -O passwall-ipk/passwall-packages.zip \
+            "https://github.com/xiaorouji/openwrt-passwall/releases/latest/download/passwall_packages_ipk_${ARCH_MAP}.zip"
           
           # 如果下载成功，解压缩
           if [ -f passwall-ipk/passwall-packages.zip ] && [ -s passwall-ipk/passwall-packages.zip ]; then
