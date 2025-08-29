@@ -73,6 +73,9 @@ jobs:
             LATEST_VERSION="unknown"
           fi
           
+          # 将版本号设置为环境变量，以便后续步骤使用
+          echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV
+          
           # 尝试直接使用API获取的下载链接
           if [ ! -z "$ASSETS_URL" ]; then
             echo "找到资源URL: $ASSETS_URL"
@@ -196,12 +199,15 @@ jobs:
           __ARCHIVE_BELOW__
           EOF
           
-          cat passwall-package.tar.gz >> passwall-installer.run
-          chmod +x passwall-installer.run
-          cp passwall-installer.run ./artifact/installer/
+          # 使用版本号命名安装包
+          INSTALLER_FILENAME="passwall-installer-${{ inputs.target_arch }}-${{ env.LATEST_VERSION }}.run"
+          cat passwall-package.tar.gz >> "$INSTALLER_FILENAME"
+          chmod +x "$INSTALLER_FILENAME"
+          cp "$INSTALLER_FILENAME" ./artifact/installer/
           
           # 创建版本信息文件
-          echo "构建时间: ${{ steps.date.outputs.date }}" > version.txt
+          echo "PassWall版本: ${{ env.LATEST_VERSION }}" > version.txt
+          echo "构建时间: ${{ steps.date.outputs.date }}" >> version.txt
           echo "目标架构: ${{ inputs.target_arch }}" >> version.txt
           echo "GitHub Actions运行ID: ${{ github.run_id }}" >> version.txt
           echo "构建选项: ${{ inputs.build_option }}" >> version.txt
@@ -216,14 +222,15 @@ jobs:
       - name: 创建发布
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: passwall-${{ inputs.target_arch }}-${{ github.run_id }}
-          name: PassWall for iStoreOS (${{ inputs.target_arch }}) - Build ${{ github.run_id }}
+          tag_name: passwall-${{ inputs.target_arch }}-${{ env.LATEST_VERSION }}-${{ github.run_id }}
+          name: PassWall ${{ env.LATEST_VERSION }} for iStoreOS (${{ inputs.target_arch }})
           files: |
-            passwall-installer.run
+            passwall-installer-${{ inputs.target_arch }}-${{ env.LATEST_VERSION }}.run
             version.txt
           body: |
-            ## PassWall for iStoreOS - ${{ inputs.target_arch }}
+            ## PassWall ${{ env.LATEST_VERSION }} for iStoreOS - ${{ inputs.target_arch }}
             
+            PassWall版本: ${{ env.LATEST_VERSION }}
             构建时间: ${{ steps.date.outputs.date }}
             目标架构: ${{ inputs.target_arch }}
             GitHub Actions运行ID: ${{ github.run_id }}
