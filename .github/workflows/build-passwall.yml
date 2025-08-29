@@ -163,10 +163,32 @@ jobs:
           cd istoreos
           
           # 基本配置
-          cat > .config <<EOF
-          CONFIG_TARGET_${{ inputs.target_arch == 'x86_64' && 'x86' || 'mediatek' }}=y
-          CONFIG_TARGET_${{ inputs.target_arch == 'x86_64' && 'x86_64' || (inputs.target_arch == 'aarch64_cortex-a53' && 'mediatek_mt7622' || 'mediatek_filogic') }}=y
-          CONFIG_TARGET_${{ inputs.target_arch == 'x86_64' && 'x86_64_DEVICE_generic' || (inputs.target_arch == 'aarch64_cortex-a53' && 'mediatek_mt7622_DEVICE_xiaomi_redmi-router-ax6s' || 'mediatek_filogic_DEVICE_xiaomi_redmi-router-ax6000') }}=y
+          if [ "${{ inputs.target_arch }}" == "x86_64" ]; then
+            cat > .config <<EOF
+            CONFIG_TARGET_x86=y
+            CONFIG_TARGET_x86_64=y
+            CONFIG_TARGET_x86_64_DEVICE_generic=y
+          EOF
+          elif [ "${{ inputs.target_arch }}" == "aarch64_cortex-a53" ]; then
+            cat > .config <<EOF
+            CONFIG_TARGET_mediatek=y
+            CONFIG_TARGET_mediatek_mt7622=y
+            CONFIG_TARGET_mediatek_mt7622_DEVICE_xiaomi_redmi-router-ax6s=y
+          EOF
+          else
+            cat > .config <<EOF
+            CONFIG_TARGET_mediatek=y
+            CONFIG_TARGET_mediatek_filogic=y
+            CONFIG_TARGET_mediatek_filogic_DEVICE_xiaomi_redmi-router-ax6000=y
+          EOF
+          fi
+          
+          # 添加PassWall基本配置
+          cat >> .config <<EOF
+          CONFIG_PACKAGE_luci-app-passwall=y
+          CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ChinaDNS_NG=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Dns2socks=y
           CONFIG_PACKAGE_luci-app-passwall=y
           CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
           CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ChinaDNS_NG=y
@@ -280,12 +302,16 @@ jobs:
         id: compile
         run: |
           cd istoreos
-          make package/feeds/passwall_luci/luci-app-passwall/compile -j$(nproc) V=s || echo "编译失败，将使用预编译包"
+          # 先尝试编译整个包
+          echo "开始编译 PassWall..."
+          make package/feeds/passwall_luci/luci-app-passwall/compile -j$(nproc) || true
           
           # 检查是否成功编译
           if find bin/packages -name "luci-app-passwall*.ipk" | grep -q .; then
             echo "编译成功，找到 PassWall IPK 文件"
             echo "compile_success=true" >> $GITHUB_OUTPUT
+            # 列出编译的文件
+            find bin/packages -name "*passwall*.ipk" -o -name "luci-app-passwall*.ipk"
           else
             echo "未找到编译后的 PassWall IPK 文件，将使用预编译包"
             echo "compile_success=false" >> $GITHUB_OUTPUT
@@ -296,11 +322,25 @@ jobs:
         run: |
           mkdir -p passwall-ipk
           
+          # 获取最新的PassWall版本号
+          LATEST_VERSION=$(curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/latest | grep "tag_name" | cut -d '"' -f 4)
+          echo "最新版本: $LATEST_VERSION"
+          
+          if [ -z "$LATEST_VERSION" ]; then
+            # 如果API调用失败，使用固定版本
+            LATEST_VERSION="4.71-1"
+            echo "无法获取最新版本，使用默认版本: $LATEST_VERSION"
+          fi
+          
           # 下载最新的PassWall IPK
+          echo "下载 PassWall IPK 版本 $LATEST_VERSION..."
           wget -O passwall-ipk/luci-app-passwall.ipk \
+            https://github.com/xiaorouji/openwrt-passwall/releases/download/$LATEST_VERSION/luci-app-passwall_${LATEST_VERSION}_all.ipk || \
+            wget -O passwall-ipk/luci-app-passwall.ipk \
             https://github.com/xiaorouji/openwrt-passwall/releases/download/4.71-1/luci-app-passwall_4.71-1_all.ipk
           
           # 下载依赖包
+          echo "下载依赖包..."
           dependencies=("brook" "chinadns-ng" "dns2socks" "dns2tcp" "gn" "hysteria" 
                         "ipt2socks" "microsocks" "naiveproxy" "pdnsd-alt" "shadowsocks-libev" 
                         "shadowsocks-rust" "shadowsocksr-libev" "simple-obfs" "sing-box" 
@@ -308,9 +348,17 @@ jobs:
                         "v2ray-plugin" "xray-core" "xray-plugin")
           
           for dep in "${dependencies[@]}"; do
+            echo "下载 $dep..."
             wget -O passwall-ipk/${dep}.ipk \
-              https://github.com/xiaorouji/openwrt-passwall/releases/download/packages/${dep}_latest_all.ipk || true
+              https://github.com/xiaorouji/openwrt-passwall-packages/releases/download/packages/${dep}_latest_${{ inputs.target_arch }}.ipk || \
+            wget -O passwall-ipk/${dep}.ipk \
+              https://github.com/xiaorouji/openwrt-passwall/releases/download/packages/${dep}_latest_all.ipk || \
+            echo "无法下载 $dep，跳过"
           done
+          
+          # 列出下载的文件
+          echo "已下载的文件:"
+          ls -la passwall-ipk/
 
       - name: 创建安装包
         run: |
@@ -418,3 +466,6 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+permissions:
+  contents: write
