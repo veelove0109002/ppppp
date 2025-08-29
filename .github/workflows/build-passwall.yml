@@ -178,10 +178,10 @@ jobs:
           echo '# 由GitHub Actions自动构建' >> installer_script.txt
           echo '' >> installer_script.txt
           echo 'echo "正在解压PassWall安装包..."' >> installer_script.txt
-          echo 'ARCHIVE=`awk '"'"'/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }'"'"' $0`' >> installer_script.txt
-          echo 'tail -n+$ARCHIVE $0 | tar -xz -C /tmp' >> installer_script.txt
+          echo 'ARCHIVE=$(awk '"'"'/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }'"'"' "$0")' >> installer_script.txt
+          echo 'tail -n +"$ARCHIVE" "$0" | tar -xz -C /tmp' >> installer_script.txt
           echo 'echo "正在运行安装脚本..."' >> installer_script.txt
-          echo '/tmp/passwall-install.sh' >> installer_script.txt
+          echo 'sh /tmp/passwall-install.sh' >> installer_script.txt
           echo 'exit 0' >> installer_script.txt
           echo '__ARCHIVE_BELOW__' >> installer_script.txt
 
