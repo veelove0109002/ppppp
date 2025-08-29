@@ -80,17 +80,49 @@ jobs:
           if [ ! -z "$ASSETS_URL" ]; then
             echo "找到资源URL: $ASSETS_URL"
             wget -O passwall-ipk/luci-app-passwall.ipk "$ASSETS_URL" && echo "下载成功!"
+            
+            # 检查下载是否成功
+            if [ ! -f passwall-ipk/luci-app-passwall.ipk ] || [ ! -s passwall-ipk/luci-app-passwall.ipk ]; then
+              echo "下载失败，文件不存在或为空"
+              exit 1
+            fi
+            
+            # 检查文件大小
+            MAIN_PKG_SIZE=$(du -sh passwall-ipk/luci-app-passwall.ipk | cut -f1)
+            echo "主包大小: $MAIN_PKG_SIZE"
           else
             echo "无法从API获取资源URL，尝试手动构建下载链接..."
             
             # 尝试不同的文件名格式
+            DOWNLOAD_SUCCESS=false
             for format in "luci-app-passwall_${LATEST_VERSION}_all.ipk" "luci-app-passwall_${LATEST_VERSION}.ipk" "luci-app-passwall-${LATEST_VERSION}.ipk"; do
               echo "尝试下载: $format"
-              wget -O passwall-ipk/luci-app-passwall.ipk \
-                "https://github.com/xiaorouji/openwrt-passwall/releases/download/${LATEST_VERSION}/${format}" && \
-                echo "下载成功!" && break
+              if wget -O passwall-ipk/luci-app-passwall.ipk \
+                "https://github.com/xiaorouji/openwrt-passwall/releases/download/${LATEST_VERSION}/${format}"; then
+                echo "下载成功!"
+                DOWNLOAD_SUCCESS=true
+                break
+              fi
             done
+            
+            # 如果所有尝试都失败，尝试从OpenWrt镜像站点下载
+            if [ "$DOWNLOAD_SUCCESS" != "true" ]; then
+              echo "所有下载尝试都失败，尝试从OpenWrt镜像站点下载..."
+              wget -O passwall-ipk/luci-app-passwall.ipk \
+                https://downloads.openwrt.org/snapshots/packages/x86_64/packages/luci-app-passwall_4.0-1_all.ipk || \
+              echo "无法下载主包，构建失败"
+              exit 1
+            fi
           fi
+          
+          # 最终检查主包
+          if [ ! -f passwall-ipk/luci-app-passwall.ipk ] || [ ! -s passwall-ipk/luci-app-passwall.ipk ]; then
+            echo "错误: 主包下载失败，文件不存在或为空"
+            exit 1
+          fi
+          
+          MAIN_PKG_SIZE=$(du -sh passwall-ipk/luci-app-passwall.ipk | cut -f1)
+          echo "主包最终大小: $MAIN_PKG_SIZE"
             
           # 如果下载失败，尝试使用API获取的URL
           if [ ! -f passwall-ipk/luci-app-passwall.ipk ] || [ ! -s passwall-ipk/luci-app-passwall.ipk ]; then
@@ -127,33 +159,95 @@ jobs:
           echo "从GitHub获取依赖包..."
           ASSETS_URLS=$(curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall-packages/releases/latest | grep "browser_download_url.*\.ipk" | cut -d '"' -f 4)
           
+          DOWNLOADED_COUNT=0
           if [ ! -z "$ASSETS_URLS" ]; then
             echo "找到资源URL列表，开始下载..."
             echo "$ASSETS_URLS" | while read url; do
               if [[ "$url" == *"_all.ipk" ]] || [[ "$url" == *"_${ARCH_MAP}.ipk" ]]; then
                 filename=$(basename "$url")
                 echo "下载: $filename"
-                wget -O "passwall-ipk/$filename" "$url" || echo "下载 $filename 失败"
+                if wget -O "passwall-ipk/$filename" "$url"; then
+                  echo "下载 $filename 成功"
+                  DOWNLOADED_COUNT=$((DOWNLOADED_COUNT+1))
+                else
+                  echo "下载 $filename 失败"
+                fi
               fi
+            done
+          fi
+          
+          # 如果从GitHub下载的依赖包太少，尝试从OpenWrt软件源下载
+          echo "已下载 $DOWNLOADED_COUNT 个依赖包"
+          if [ $DOWNLOADED_COUNT -lt 5 ]; then
+            echo "从GitHub下载的依赖包太少，尝试从OpenWrt软件源下载..."
+            
+            # 核心依赖列表
+            for dep in "chinadns-ng" "dns2socks" "ipt2socks" "microsocks" \
+                       "shadowsocks-libev" "shadowsocksr-libev" "simple-obfs" \
+                       "tcping" "trojan-plus" "v2ray-plugin" "xray-core"; do
+              echo "下载 $dep..."
+              wget -O "passwall-ipk/${dep}.ipk" \
+                "https://downloads.openwrt.org/snapshots/packages/${ARCH_MAP}/packages/${dep}_*.ipk" || \
+              wget -O "passwall-ipk/${dep}.ipk" \
+                "https://downloads.openwrt.org/snapshots/packages/${ARCH_MAP}/base/${dep}_*.ipk" || \
+              echo "无法从OpenWrt软件源下载 $dep，跳过"
             done
           fi
           
           # 列出下载的文件
           echo "已下载的文件:"
           ls -la passwall-ipk/
+          
+          # 检查下载的文件数量和总大小
+          FILE_COUNT=$(ls -1 passwall-ipk/*.ipk 2>/dev/null | wc -l)
+          TOTAL_SIZE=$(du -sh passwall-ipk/ | cut -f1)
+          echo "下载了 $FILE_COUNT 个IPK文件，总大小: $TOTAL_SIZE"
+          
+          # 确保至少有主包
+          if [ $FILE_COUNT -lt 1 ]; then
+            echo "错误: 没有下载到任何IPK文件"
+            exit 1
+          fi
 
       - name: 创建安装包
         run: |
+          # 检查下载的IPK文件
+          echo "检查下载的IPK文件..."
+          ls -la passwall-ipk/
+          TOTAL_SIZE=$(du -sh passwall-ipk/ | cut -f1)
+          echo "IPK文件总大小: $TOTAL_SIZE"
+          
+          # 确保至少有一个IPK文件
+          if [ ! "$(ls -A passwall-ipk/*.ipk 2>/dev/null)" ]; then
+            echo "错误: 没有找到任何IPK文件，无法创建安装包"
+            exit 1
+          fi
+          
           # 创建安装脚本
           cat > passwall-install.sh <<EOF
           #!/bin/sh
           # PassWall installer for iStoreOS
+          # 版本: ${{ env.LATEST_VERSION }}
+          # 构建时间: ${{ steps.date.outputs.date }}
           
-          echo "开始安装 PassWall for iStoreOS..."
+          echo "开始安装 PassWall ${{ env.LATEST_VERSION }} for iStoreOS..."
+          
+          # 检查IPK文件
+          if [ ! -d /tmp/passwall-ipk ]; then
+            echo "错误: 找不到IPK文件目录"
+            exit 1
+          fi
+          
+          IPK_COUNT=\$(ls -1 /tmp/passwall-ipk/*.ipk 2>/dev/null | wc -l)
+          if [ "\$IPK_COUNT" -eq 0 ]; then
+            echo "错误: 找不到任何IPK文件"
+            exit 1
+          fi
+          
+          echo "找到 \$IPK_COUNT 个IPK文件"
           
           # 创建临时目录
           mkdir -p /tmp/passwall-install
-          cd /tmp/passwall-install
           
           # 安装依赖
           echo "正在更新软件包列表..."
@@ -164,8 +258,10 @@ jobs:
           
           # 安装PassWall及其依赖
           echo "正在安装PassWall及其依赖..."
-          cd /tmp
-          opkg install /tmp/passwall-ipk/*.ipk
+          for ipk in /tmp/passwall-ipk/*.ipk; do
+            echo "安装: \$(basename \$ipk)"
+            opkg install "\$ipk" || echo "警告: 安装 \$(basename \$ipk) 失败，继续安装其他包"
+          done
           
           # 重启网络和服务
           echo "正在重启服务..."
@@ -174,23 +270,27 @@ jobs:
           
           # 清理
           rm -rf /tmp/passwall-install
-          echo "PassWall 安装完成！请在LuCI界面中访问服务→PassWall"
+          echo "PassWall ${{ env.LATEST_VERSION }} 安装完成！请在LuCI界面中访问服务→PassWall"
           EOF
           
           chmod +x passwall-install.sh
           
           # 创建tar包
-          tar -czf passwall-package.tar.gz passwall-ipk passwall-install.sh
+          echo "创建tar包..."
+          tar -czvf passwall-package.tar.gz passwall-ipk passwall-install.sh
+          TAR_SIZE=$(du -sh passwall-package.tar.gz | cut -f1)
+          echo "tar包大小: $TAR_SIZE"
           
           # 创建自解压安装包
+          echo "创建自解压安装包..."
           cat > passwall-installer.run <<EOF
           #!/bin/sh
-          # PassWall for iStoreOS 自解压安装包
+          # PassWall ${{ env.LATEST_VERSION }} for iStoreOS 自解压安装包
           # 由GitHub Actions自动构建 - ${{ github.run_id }}
           # 构建时间: ${{ steps.date.outputs.date }}
           # 目标架构: ${{ inputs.target_arch }}
           
-          echo "正在解压PassWall安装包..."
+          echo "正在解压PassWall ${{ env.LATEST_VERSION }} 安装包..."
           ARCHIVE=\`awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' \$0\`
           tail -n+\$ARCHIVE \$0 | tar -xz -C /tmp
           echo "正在运行安装脚本..."
@@ -203,6 +303,22 @@ jobs:
           INSTALLER_FILENAME="passwall-installer-${{ inputs.target_arch }}-${{ env.LATEST_VERSION }}.run"
           cat passwall-package.tar.gz >> "$INSTALLER_FILENAME"
           chmod +x "$INSTALLER_FILENAME"
+          
+          # 检查生成的安装包大小
+          INSTALLER_SIZE=$(du -sh "$INSTALLER_FILENAME" | cut -f1)
+          echo "安装包大小: $INSTALLER_SIZE"
+          
+          # 确保安装包大小合理
+          INSTALLER_BYTES=$(stat -c%s "$INSTALLER_FILENAME")
+          echo "安装包字节数: $INSTALLER_BYTES"
+          
+          if [ $INSTALLER_BYTES -lt 1000000 ]; then
+            echo "警告: 安装包大小异常小 ($INSTALLER_BYTES 字节)，可能没有正确包含IPK文件"
+            echo "检查tar包内容:"
+            tar -tvf passwall-package.tar.gz
+            exit 1
+          fi
+          
           cp "$INSTALLER_FILENAME" ./artifact/installer/
           
           # 创建版本信息文件
