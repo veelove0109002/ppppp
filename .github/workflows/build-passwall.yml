@@ -118,20 +118,53 @@ on:
         default: 'false'
         type: boolean
 
+permissions:
+  contents: write
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: 构建 PassWall 固件
+    runs-on: ubuntu-22.04
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v3
-
-      - name: 设置构建环境
+      - name: 空间清理和环境初始化
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
-            gettext git libncurses-dev libssl-dev python3-distutils rsync unzip zlib1g-dev \
-            file wget
+          docker rmi `docker images -q` || true
+          sudo -E rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d /usr/local/lib/android || true
+          sudo -E apt-mark hold grub-efi-amd64-signed || true
+          sudo -E apt update
+          sudo -E apt -y purge azure-cli* docker* ghc* zulu* llvm* firefox google* dotnet* powershell* openjdk* mysql* php* mongodb* dotnet* snap* || true
+          sudo -E apt -y full-upgrade
+          sudo -E apt -y install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-multilib \
+            gettext git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev \
+            libpython3-dev libreadline-dev libssl-dev libtool llvm lrzsz msmtp ninja-build p7zip p7zip-full \
+            patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools \
+            subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+          sudo -E systemctl daemon-reload || true
+          sudo -E apt -y autoremove --purge
+          sudo -E apt clean
+          sudo -E timedatectl set-timezone "Asia/Shanghai"
           echo "WORKDIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+          
+          # 显示磁盘空间
+          echo "初始磁盘空间:"
+          df -h
+
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 释放磁盘空间
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
 
       - name: 缓存工具链和下载
         uses: actions/cache@v3
@@ -139,24 +172,39 @@ jobs:
           path: |
             ${{ github.workspace }}/istoreos/dl
             ${{ github.workspace }}/istoreos/build_dir/toolchain-*
-          key: ${{ runner.os }}-toolchain-${{ github.run_id }}
+          key: ${{ runner.os }}-${{ inputs.target_arch }}-toolchain-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-toolchain-
+            ${{ runner.os }}-${{ inputs.target_arch }}-toolchain-
 
       - name: 克隆 iStoreOS
         run: |
           git clone --depth=1 https://github.com/istoreos/istoreos.git
+          cd istoreos
+          echo "克隆完成，当前分支:"
+          git branch -v
+          echo "当前提交:"
+          git log -1 --pretty=format:"%h - %an, %ar : %s"
 
       - name: 设置 feeds
         run: |
           cd istoreos
           echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git;main" >> feeds.conf.default
           echo "src-git passwall_luci https://github.com/xiaorouji/openwrt-passwall.git;main" >> feeds.conf.default
+          
+          echo "更新 feeds..."
           ./scripts/feeds update -a
+          
+          echo "安装 feeds..."
           ./scripts/feeds install -a
+          
+          echo "更新 passwall feeds..."
           ./scripts/feeds update passwall_packages passwall_luci
+          
+          echo "安装 passwall feeds..."
           ./scripts/feeds install -a -p passwall_packages
           ./scripts/feeds install -a -p passwall_luci
+          
+          echo "Feeds 配置完成"
 
       - name: 生成配置文件
         run: |
@@ -296,7 +344,9 @@ jobs:
       - name: 下载源码
         run: |
           cd istoreos
-          make download -j8 || true
+          echo "开始下载源码..."
+          make download -j16 || make download -j1 V=s
+          echo "下载完成"
 
       - name: 编译 PassWall
         id: compile
@@ -304,18 +354,29 @@ jobs:
           cd istoreos
           # 先尝试编译整个包
           echo "开始编译 PassWall..."
-          make package/feeds/passwall_luci/luci-app-passwall/compile -j$(nproc) || true
+          make package/feeds/passwall_luci/luci-app-passwall/compile -j$(nproc) || make package/feeds/passwall_luci/luci-app-passwall/compile -j1 V=s
           
           # 检查是否成功编译
           if find bin/packages -name "luci-app-passwall*.ipk" | grep -q .; then
             echo "编译成功，找到 PassWall IPK 文件"
             echo "compile_success=true" >> $GITHUB_OUTPUT
             # 列出编译的文件
+            echo "编译的 PassWall 相关文件:"
             find bin/packages -name "*passwall*.ipk" -o -name "luci-app-passwall*.ipk"
           else
             echo "未找到编译后的 PassWall IPK 文件，将使用预编译包"
             echo "compile_success=false" >> $GITHUB_OUTPUT
           fi
+          
+          # 显示磁盘使用情况
+          echo "======================="
+          echo "编译后磁盘空间使用情况:"
+          echo "======================="
+          df -h
+          echo "======================="
+          du -h --max-depth=1 ./ --exclude=build_dir --exclude=bin
+          du -h --max-depth=1 ./build_dir || true
+          du -h --max-depth=1 ./bin || true
 
       - name: 准备预编译包
         if: steps.compile.outputs.compile_success != 'true'
@@ -360,13 +421,18 @@ jobs:
           echo "已下载的文件:"
           ls -la passwall-ipk/
 
-      - name: 创建安装包
+      - name: 准备构建产物
         run: |
+          # 创建产物目录
+          mkdir -p ./artifact/package
+          mkdir -p ./artifact/installer
+          
           # 创建IPK目录
           mkdir -p passwall-ipk
           
           # 如果编译成功，复制编译的IPK文件
           if [ "${{ steps.compile.outputs.compile_success }}" == "true" ]; then
+            echo "使用编译的IPK文件"
             find istoreos/bin/packages -name "luci-app-passwall*.ipk" -exec cp {} passwall-ipk/ \;
             find istoreos/bin/packages -name "*passwall*.ipk" -exec cp {} passwall-ipk/ \;
             find istoreos/bin/packages -name "chinadns-ng*.ipk" -exec cp {} passwall-ipk/ \;
@@ -381,6 +447,9 @@ jobs:
             find istoreos/bin/packages -name "v2ray*.ipk" -exec cp {} passwall-ipk/ \;
             find istoreos/bin/packages -name "xray*.ipk" -exec cp {} passwall-ipk/ \;
           fi
+          
+          # 复制所有IPK到产物目录
+          cp -rf passwall-ipk/*.ipk ./artifact/package/ || true
           
           # 创建安装脚本
           cat > passwall-install.sh <<EOF
@@ -424,7 +493,9 @@ jobs:
           cat > passwall-installer.run <<EOF
           #!/bin/sh
           # PassWall for iStoreOS 自解压安装包
-          # 由GitHub Actions自动构建
+          # 由GitHub Actions自动构建 - ${{ github.run_id }}
+          # 构建时间: $(date)
+          # 目标架构: ${{ inputs.target_arch }}
           
           echo "正在解压PassWall安装包..."
           ARCHIVE=\`awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' \$0\`
@@ -437,20 +508,31 @@ jobs:
           
           cat passwall-package.tar.gz >> passwall-installer.run
           chmod +x passwall-installer.run
+          cp passwall-installer.run ./artifact/installer/
           
           # 创建版本信息文件
           echo "构建时间: $(date)" > version.txt
           echo "目标架构: ${{ inputs.target_arch }}" >> version.txt
           echo "GitHub Actions运行ID: ${{ github.run_id }}" >> version.txt
           echo "提交SHA: ${{ github.sha }}" >> version.txt
+          echo "构建选项:" >> version.txt
+          echo "- Iptables: ${{ inputs.iptables }}" >> version.txt
+          echo "- Nftables: ${{ inputs.nftables }}" >> version.txt
+          echo "- Xray: ${{ inputs.xray }}" >> version.txt
+          echo "- SingBox: ${{ inputs.singbox }}" >> version.txt
+          cp version.txt ./artifact/installer/
 
-      - name: 上传构建产物
-        uses: actions/upload-artifact@v3
+      - name: 上传IPK包
+        uses: actions/upload-artifact@v4
+        with:
+          name: passwall-ipk-${{ inputs.target_arch }}
+          path: ./artifact/package/
+          
+      - name: 上传安装程序
+        uses: actions/upload-artifact@v4
         with:
           name: passwall-installer-${{ inputs.target_arch }}
-          path: |
-            passwall-installer.run
-            version.txt
+          path: ./artifact/installer/
 
       - name: 创建发布
         id: create_release
@@ -464,8 +546,17 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          body: |
+            ## PassWall for iStoreOS - ${{ inputs.target_arch }}
+            
+            构建时间: $(date)
+            目标架构: ${{ inputs.target_arch }}
+            GitHub Actions运行ID: ${{ github.run_id }}
+            
+            ### 安装方法
+            
+            1. 下载 `passwall-installer.run` 文件到路由器
+            2. 执行 `chmod +x passwall-installer.run && ./passwall-installer.run`
+            3. 安装完成后，在LuCI界面中访问服务→PassWall
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-permissions:
-  contents: write
