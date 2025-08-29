@@ -62,9 +62,15 @@ jobs:
           # 获取最新版本号和下载链接
           echo "获取最新版本和下载链接..."
           
-          # 直接获取下载链接
-          ASSETS_URL=$(curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/latest | grep "browser_download_url.*luci-app-passwall.*all.ipk" | cut -d '"' -f 4)
+          # 获取最新版本号
           LATEST_VERSION=$(curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/latest | grep "tag_name" | cut -d '"' -f 4)
+          
+          # 获取下载链接 - 只获取第一个匹配的链接
+          ASSETS_URL=$(curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/latest | grep "browser_download_url.*luci.*passwall.*all.ipk" | head -1 | cut -d '"' -f 4)
+          
+          # 打印调试信息
+          echo "API返回的所有IPK链接:"
+          curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/latest | grep "browser_download_url.*\.ipk" | cut -d '"' -f 4
           
           if [ ! -z "$LATEST_VERSION" ]; then
             echo "获取到最新版本: $LATEST_VERSION"
@@ -76,32 +82,24 @@ jobs:
           # 将版本号设置为环境变量，以便后续步骤使用
           echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV
           
-          # 尝试直接使用API获取的下载链接
-          if [ ! -z "$ASSETS_URL" ]; then
-            echo "找到资源URL: $ASSETS_URL"
-            wget -O passwall-ipk/luci-app-passwall.ipk "$ASSETS_URL" && echo "下载成功!"
-            
-            # 检查下载是否成功
-            if [ ! -f passwall-ipk/luci-app-passwall.ipk ] || [ ! -s passwall-ipk/luci-app-passwall.ipk ]; then
-              echo "下载失败，文件不存在或为空"
-              exit 1
-            fi
-            
-            # 检查文件大小
-            MAIN_PKG_SIZE=$(du -sh passwall-ipk/luci-app-passwall.ipk | cut -f1)
-            echo "主包大小: $MAIN_PKG_SIZE"
-          else
-            echo "无法从API获取资源URL，尝试手动构建下载链接..."
+          # 下载所有可用的PassWall包
+          echo "下载所有可用的PassWall包..."
+          
+          # 获取所有PassWall IPK链接
+          PASSWALL_URLS=$(curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall/releases/latest | grep "browser_download_url.*luci.*passwall.*all.ipk" | cut -d '"' -f 4)
+          
+          # 检查是否有链接
+          if [ -z "$PASSWALL_URLS" ]; then
+            echo "无法从API获取PassWall包链接，尝试手动构建链接..."
             
             # 尝试不同的文件名格式
             DOWNLOAD_SUCCESS=false
-            for format in "luci-app-passwall_${LATEST_VERSION}_all.ipk" "luci-app-passwall_${LATEST_VERSION}.ipk" "luci-app-passwall-${LATEST_VERSION}.ipk"; do
+            for format in "luci-app-passwall_${LATEST_VERSION}_all.ipk" "luci-19.07_luci-app-passwall_${LATEST_VERSION}_all.ipk" "luci-24.10_luci-app-passwall_${LATEST_VERSION}_all.ipk"; do
               echo "尝试下载: $format"
-              if wget -O passwall-ipk/luci-app-passwall.ipk \
+              if wget -O "passwall-ipk/$format" \
                 "https://github.com/xiaorouji/openwrt-passwall/releases/download/${LATEST_VERSION}/${format}"; then
-                echo "下载成功!"
+                echo "下载成功: $format"
                 DOWNLOAD_SUCCESS=true
-                break
               fi
             done
             
@@ -113,7 +111,25 @@ jobs:
               echo "无法下载主包，构建失败"
               exit 1
             fi
+          else
+            # 下载所有找到的PassWall包
+            echo "$PASSWALL_URLS" | while read url; do
+              if [ ! -z "$url" ]; then
+                filename=$(basename "$url")
+                echo "下载: $filename"
+                wget -O "passwall-ipk/$filename" "$url" && echo "下载成功: $filename" || echo "下载失败: $filename"
+              fi
+            done
           fi
+          
+          # 检查是否至少有一个PassWall包
+          PASSWALL_COUNT=$(ls -1 passwall-ipk/luci*passwall*.ipk 2>/dev/null | wc -l)
+          if [ $PASSWALL_COUNT -lt 1 ]; then
+            echo "错误: 没有下载到任何PassWall包"
+            exit 1
+          fi
+          
+          echo "成功下载了 $PASSWALL_COUNT 个PassWall包"
           
           # 最终检查主包
           if [ ! -f passwall-ipk/luci-app-passwall.ipk ] || [ ! -s passwall-ipk/luci-app-passwall.ipk ]; then
