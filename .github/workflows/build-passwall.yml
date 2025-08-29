@@ -131,14 +131,43 @@ jobs:
           
           echo "成功下载了 $PASSWALL_COUNT 个PassWall包"
           
-          # 最终检查主包
-          if [ ! -f passwall-ipk/luci-app-passwall.ipk ] || [ ! -s passwall-ipk/luci-app-passwall.ipk ]; then
-            echo "错误: 主包下载失败，文件不存在或为空"
-            exit 1
+          # 最终检查下载的包
+          PASSWALL_COUNT=$(ls -1 passwall-ipk/luci*passwall*.ipk 2>/dev/null | wc -l)
+          if [ $PASSWALL_COUNT -lt 1 ]; then
+            echo "错误: 没有下载到任何PassWall包"
+            
+            # 尝试下载压缩包
+            echo "尝试下载PassWall压缩包..."
+            wget -O passwall-ipk/passwall_packages.zip \
+              "https://github.com/xiaorouji/openwrt-passwall/releases/download/${LATEST_VERSION}/passwall_packages_ipk_x86_64.zip" || \
+            wget -O passwall-ipk/passwall_packages.zip \
+              "https://github.com/xiaorouji/openwrt-passwall/releases/download/${LATEST_VERSION}/passwall_packages_ipk.zip"
+            
+            # 如果下载成功，解压缩
+            if [ -f passwall-ipk/passwall_packages.zip ] && [ -s passwall-ipk/passwall_packages.zip ]; then
+              echo "下载压缩包成功，解压中..."
+              unzip -o passwall-ipk/passwall_packages.zip -d passwall-ipk/
+              rm -f passwall-ipk/passwall_packages.zip
+              
+              # 再次检查
+              PASSWALL_COUNT=$(ls -1 passwall-ipk/luci*passwall*.ipk 2>/dev/null | wc -l)
+              if [ $PASSWALL_COUNT -lt 1 ]; then
+                echo "错误: 解压后仍然没有找到任何PassWall包"
+                exit 1
+              fi
+            else
+              echo "下载压缩包失败"
+              exit 1
+            fi
           fi
           
-          MAIN_PKG_SIZE=$(du -sh passwall-ipk/luci-app-passwall.ipk | cut -f1)
-          echo "主包最终大小: $MAIN_PKG_SIZE"
+          # 显示下载的包
+          echo "下载的PassWall包:"
+          ls -lh passwall-ipk/luci*passwall*.ipk
+          
+          # 计算总大小
+          TOTAL_PKG_SIZE=$(du -sh passwall-ipk/ | cut -f1)
+          echo "所有包总大小: $TOTAL_PKG_SIZE"
             
           # 如果下载失败，尝试使用API获取的URL
           if [ ! -f passwall-ipk/luci-app-passwall.ipk ] || [ ! -s passwall-ipk/luci-app-passwall.ipk ]; then
@@ -171,43 +200,62 @@ jobs:
             dependencies+=("hysteria" "naiveproxy" "tuic-client" "xray-plugin")
           fi
           
-          # 从GitHub获取依赖包
-          echo "从GitHub获取依赖包..."
-          ASSETS_URLS=$(curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall-packages/releases/latest | grep "browser_download_url.*\.ipk" | cut -d '"' -f 4)
+          # 尝试下载依赖包压缩包
+          echo "尝试下载依赖包压缩包..."
+          wget -O passwall-ipk/passwall-packages.zip \
+            "https://github.com/xiaorouji/openwrt-passwall-packages/releases/download/packages/passwall-packages_${ARCH_MAP}.zip" || \
+          wget -O passwall-ipk/passwall-packages.zip \
+            "https://github.com/xiaorouji/openwrt-passwall-packages/releases/latest/download/passwall-packages_${ARCH_MAP}.zip"
           
-          DOWNLOADED_COUNT=0
-          if [ ! -z "$ASSETS_URLS" ]; then
-            echo "找到资源URL列表，开始下载..."
-            echo "$ASSETS_URLS" | while read url; do
-              if [[ "$url" == *"_all.ipk" ]] || [[ "$url" == *"_${ARCH_MAP}.ipk" ]]; then
-                filename=$(basename "$url")
-                echo "下载: $filename"
-                if wget -O "passwall-ipk/$filename" "$url"; then
-                  echo "下载 $filename 成功"
-                  DOWNLOADED_COUNT=$((DOWNLOADED_COUNT+1))
-                else
-                  echo "下载 $filename 失败"
-                fi
-              fi
-            done
-          fi
-          
-          # 如果从GitHub下载的依赖包太少，尝试从OpenWrt软件源下载
-          echo "已下载 $DOWNLOADED_COUNT 个依赖包"
-          if [ $DOWNLOADED_COUNT -lt 5 ]; then
-            echo "从GitHub下载的依赖包太少，尝试从OpenWrt软件源下载..."
+          # 如果下载成功，解压缩
+          if [ -f passwall-ipk/passwall-packages.zip ] && [ -s passwall-ipk/passwall-packages.zip ]; then
+            echo "下载依赖包压缩包成功，解压中..."
+            unzip -o passwall-ipk/passwall-packages.zip -d passwall-ipk/
+            rm -f passwall-ipk/passwall-packages.zip
+            DOWNLOADED_COUNT=$(ls -1 passwall-ipk/*.ipk 2>/dev/null | wc -l)
+            echo "解压得到 $DOWNLOADED_COUNT 个包"
+          else
+            echo "下载依赖包压缩包失败，尝试单独下载依赖包..."
+            rm -f passwall-ipk/passwall-packages.zip
             
-            # 核心依赖列表
-            for dep in "chinadns-ng" "dns2socks" "ipt2socks" "microsocks" \
-                       "shadowsocks-libev" "shadowsocksr-libev" "simple-obfs" \
-                       "tcping" "trojan-plus" "v2ray-plugin" "xray-core"; do
-              echo "下载 $dep..."
-              wget -O "passwall-ipk/${dep}.ipk" \
-                "https://downloads.openwrt.org/snapshots/packages/${ARCH_MAP}/packages/${dep}_*.ipk" || \
-              wget -O "passwall-ipk/${dep}.ipk" \
-                "https://downloads.openwrt.org/snapshots/packages/${ARCH_MAP}/base/${dep}_*.ipk" || \
-              echo "无法从OpenWrt软件源下载 $dep，跳过"
-            done
+            # 从GitHub获取依赖包
+            echo "从GitHub获取依赖包..."
+            ASSETS_URLS=$(curl -s https://api.github.com/repos/xiaorouji/openwrt-passwall-packages/releases/latest | grep "browser_download_url.*\.ipk" | cut -d '"' -f 4)
+            
+            DOWNLOADED_COUNT=0
+            if [ ! -z "$ASSETS_URLS" ]; then
+              echo "找到资源URL列表，开始下载..."
+              echo "$ASSETS_URLS" | while read url; do
+                if [[ "$url" == *"_all.ipk" ]] || [[ "$url" == *"_${ARCH_MAP}.ipk" ]]; then
+                  filename=$(basename "$url")
+                  echo "下载: $filename"
+                  if wget -O "passwall-ipk/$filename" "$url"; then
+                    echo "下载 $filename 成功"
+                    DOWNLOADED_COUNT=$((DOWNLOADED_COUNT+1))
+                  else
+                    echo "下载 $filename 失败"
+                  fi
+                fi
+              done
+            fi
+            
+            # 如果从GitHub下载的依赖包太少，尝试从OpenWrt软件源下载
+            echo "已下载 $DOWNLOADED_COUNT 个依赖包"
+            if [ $DOWNLOADED_COUNT -lt 5 ]; then
+              echo "从GitHub下载的依赖包太少，尝试从OpenWrt软件源下载..."
+              
+              # 核心依赖列表
+              for dep in "chinadns-ng" "dns2socks" "ipt2socks" "microsocks" \
+                         "shadowsocks-libev" "shadowsocksr-libev" "simple-obfs" \
+                         "tcping" "trojan-plus" "v2ray-plugin" "xray-core"; do
+                echo "下载 $dep..."
+                wget -O "passwall-ipk/${dep}.ipk" \
+                  "https://downloads.openwrt.org/snapshots/packages/${ARCH_MAP}/packages/${dep}_*.ipk" || \
+                wget -O "passwall-ipk/${dep}.ipk" \
+                  "https://downloads.openwrt.org/snapshots/packages/${ARCH_MAP}/base/${dep}_*.ipk" || \
+                echo "无法从OpenWrt软件源下载 $dep，跳过"
+              done
+            fi
           fi
           
           # 列出下载的文件
