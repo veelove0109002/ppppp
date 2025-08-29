@@ -12,36 +12,16 @@ on:
           - x86_64
           - aarch64_cortex-a53
           - aarch64_generic
-      proxy_type:
-        description: '代理类型'
-        required: true
-        default: 'both'
-        type: choice
-        options:
-          - both
-          - iptables
-          - nftables
-          - none
-      core_selection:
-        description: '核心选择'
+      build_option:
+        description: '构建选项'
         required: true
         default: 'standard'
         type: choice
         options:
-          - standard
-          - full
-          - minimal
-          - custom
-      include_servers:
-        description: '包含服务端组件'
-        required: false
-        default: 'false'
-        type: boolean
-      include_advanced:
-        description: '包含高级组件'
-        required: false
-        default: 'false'
-        type: boolean
+          - minimal (基础组件)
+          - standard (标准组件)
+          - full (全部组件)
+          - custom (自定义)
 
 permissions:
   contents: write
@@ -178,17 +158,18 @@ jobs:
           CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Dns2socks=y
           EOF
           
-          # 添加代理类型配置
-          if [ "${{ inputs.proxy_type }}" == "both" ] || [ "${{ inputs.proxy_type }}" == "iptables" ]; then
-            echo "CONFIG_PACKAGE_luci-app-passwall_Iptables_Transparent_Proxy=y" >> .config
-          fi
+          # 添加透明代理配置
+          echo "CONFIG_PACKAGE_luci-app-passwall_Iptables_Transparent_Proxy=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-passwall_Nftables_Transparent_Proxy=y" >> .config
           
-          if [ "${{ inputs.proxy_type }}" == "both" ] || [ "${{ inputs.proxy_type }}" == "nftables" ]; then
-            echo "CONFIG_PACKAGE_luci-app-passwall_Nftables_Transparent_Proxy=y" >> .config
-          fi
-          
-          # 根据核心选择添加组件
-          if [ "${{ inputs.core_selection }}" == "standard" ] || [ "${{ inputs.core_selection }}" == "full" ]; then
+          # 根据构建选项添加组件
+          if [[ "${{ inputs.build_option }}" == *"minimal"* ]]; then
+            # 最小组件
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ChinaDNS_NG=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y" >> .config
+          elif [[ "${{ inputs.build_option }}" == *"standard"* ]]; then
             # 标准组件
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ChinaDNS_NG=y" >> .config
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Dns2socks=y" >> .config
@@ -201,9 +182,20 @@ jobs:
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Trojan_Plus=y" >> .config
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Plugin=y" >> .config
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y" >> .config
-          fi
-          
-          if [ "${{ inputs.core_selection }}" == "full" ] || [ "${{ inputs.core_selection }}" == "custom" ] && [ "${{ inputs.include_advanced }}" == "true" ]; then
+          elif [[ "${{ inputs.build_option }}" == *"full"* ]] || [[ "${{ inputs.build_option }}" == *"custom"* ]]; then
+            # 全部组件
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ChinaDNS_NG=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Dns2socks=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Simple_Obfs=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Trojan_Plus=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Plugin=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y" >> .config
+            
             # 高级组件
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Geoview=y" >> .config
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Hysteria=y" >> .config
@@ -212,18 +204,8 @@ jobs:
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_tuic_client=y" >> .config
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata=y" >> .config
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray_Plugin=y" >> .config
-          fi
-          
-          if [ "${{ inputs.core_selection }}" == "minimal" ]; then
-            # 最小组件
-            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ChinaDNS_NG=y" >> .config
-            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client=y" >> .config
-            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=y" >> .config
-            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y" >> .config
-          fi
-          
-          # 服务端组件
-          if [ "${{ inputs.include_servers }}" == "true" ]; then
+            
+            # 服务端组件
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Server=y" >> .config
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server=y" >> .config
             echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Server=y" >> .config
@@ -508,11 +490,7 @@ EOF
           echo "目标架构: ${{ inputs.target_arch }}" >> version.txt
           echo "GitHub Actions运行ID: ${{ github.run_id }}" >> version.txt
           echo "提交SHA: ${{ github.sha }}" >> version.txt
-          echo "构建选项:" >> version.txt
-          echo "- 代理类型: ${{ inputs.proxy_type }}" >> version.txt
-          echo "- 核心选择: ${{ inputs.core_selection }}" >> version.txt
-          echo "- 包含服务端组件: ${{ inputs.include_servers }}" >> version.txt
-          echo "- 包含高级组件: ${{ inputs.include_advanced }}" >> version.txt
+          echo "构建选项: ${{ inputs.build_option }}" >> version.txt
           cp version.txt ./artifact/installer/
 
       - name: 上传IPK包
@@ -538,10 +516,7 @@ EOF
           GitHub Actions运行ID: ${{ github.run_id }}
           
           ### 构建选项
-          - 代理类型: ${{ inputs.proxy_type }}
-          - 核心选择: ${{ inputs.core_selection }}
-          - 包含服务端组件: ${{ inputs.include_servers }}
-          - 包含高级组件: ${{ inputs.include_advanced }}
+          - 构建配置: ${{ inputs.build_option }}
           
           ### 安装方法
           
