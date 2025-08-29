@@ -183,9 +183,18 @@ jobs:
           echo '' >> installer_script.txt
           echo 'echo "正在解压PassWall安装包..."' >> installer_script.txt
           echo 'ARCHIVE=`awk '"'"'/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }'"'"' $0`' >> installer_script.txt
-          echo 'tail -n+$ARCHIVE $0 | tar -xz -C /tmp' >> installer_script.txt
+          echo 'mkdir -p /tmp/passwall-extract' >> installer_script.txt
+          echo 'tail -n+$ARCHIVE $0 | tar -xz -C /tmp/passwall-extract' >> installer_script.txt
           echo 'echo "正在运行安装脚本..."' >> installer_script.txt
-          echo '/tmp/passwall-install.sh' >> installer_script.txt
+          echo 'if [ -f "/tmp/passwall-extract/passwall-install.sh" ]; then' >> installer_script.txt
+          echo '  chmod +x /tmp/passwall-extract/passwall-install.sh' >> installer_script.txt
+          echo '  /tmp/passwall-extract/passwall-install.sh' >> installer_script.txt
+          echo 'else' >> installer_script.txt
+          echo '  echo "错误: 找不到安装脚本 /tmp/passwall-extract/passwall-install.sh"' >> installer_script.txt
+          echo '  echo "目录内容:"' >> installer_script.txt
+          echo '  ls -la /tmp/passwall-extract/' >> installer_script.txt
+          echo '  exit 1' >> installer_script.txt
+          echo 'fi' >> installer_script.txt
           echo 'exit 0' >> installer_script.txt
           echo '__ARCHIVE_BELOW__' >> installer_script.txt
 
