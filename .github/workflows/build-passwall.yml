@@ -1,0 +1,420 @@
+name: Build PassWall for iStoreOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_arch:
+        description: '目标架构'
+        required: true
+        default: 'x86_64'
+        type: choice
+        options:
+          - x86_64
+          - aarch64_cortex-a53
+          - aarch64_generic
+      iptables:
+        description: '启用 Iptables 透明代理'
+        required: false
+        default: 'true'
+        type: boolean
+      nftables:
+        description: '启用 Nftables 透明代理'
+        required: false
+        default: 'true'
+        type: boolean
+      geoview:
+        description: '包含 Geoview'
+        required: false
+        default: 'true'
+        type: boolean
+      haproxy:
+        description: '包含 Haproxy'
+        required: false
+        default: 'true'
+        type: boolean
+      hysteria:
+        description: '包含 Hysteria'
+        required: false
+        default: 'false'
+        type: boolean
+      naiveproxy:
+        description: '包含 NaiveProxy'
+        required: false
+        default: 'false'
+        type: boolean
+      shadowsocks_libev_client:
+        description: '包含 Shadowsocks Libev 客户端'
+        required: false
+        default: 'true'
+        type: boolean
+      shadowsocks_libev_server:
+        description: '包含 Shadowsocks Libev 服务端'
+        required: false
+        default: 'true'
+        type: boolean
+      shadowsocks_rust_client:
+        description: '包含 Shadowsocks Rust 客户端'
+        required: false
+        default: 'true'
+        type: boolean
+      shadowsocks_rust_server:
+        description: '包含 Shadowsocks Rust 服务端'
+        required: false
+        default: 'false'
+        type: boolean
+      shadowsocksr_libev_client:
+        description: '包含 ShadowsocksR Libev 客户端'
+        required: false
+        default: 'true'
+        type: boolean
+      shadowsocksr_libev_server:
+        description: '包含 ShadowsocksR Libev 服务端'
+        required: false
+        default: 'false'
+        type: boolean
+      shadow_tls:
+        description: '包含 Shadow-TLS'
+        required: false
+        default: 'false'
+        type: boolean
+      simple_obfs:
+        description: '包含 Simple-Obfs'
+        required: false
+        default: 'true'
+        type: boolean
+      singbox:
+        description: '包含 SingBox'
+        required: false
+        default: 'true'
+        type: boolean
+      trojan_plus:
+        description: '包含 Trojan-Plus'
+        required: false
+        default: 'true'
+        type: boolean
+      tuic_client:
+        description: '包含 tuic-client'
+        required: false
+        default: 'false'
+        type: boolean
+      v2ray_geodata:
+        description: '包含 V2ray_Geodata'
+        required: false
+        default: 'false'
+        type: boolean
+      v2ray_plugin:
+        description: '包含 V2ray-Plugin'
+        required: false
+        default: 'true'
+        type: boolean
+      xray:
+        description: '包含 Xray'
+        required: false
+        default: 'true'
+        type: boolean
+      xray_plugin:
+        description: '包含 Xray-Plugin'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+
+      - name: 设置构建环境
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+            gettext git libncurses-dev libssl-dev python3-distutils rsync unzip zlib1g-dev \
+            file wget
+          echo "WORKDIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+
+      - name: 缓存工具链和下载
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ github.workspace }}/istoreos/dl
+            ${{ github.workspace }}/istoreos/build_dir/toolchain-*
+          key: ${{ runner.os }}-toolchain-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-toolchain-
+
+      - name: 克隆 iStoreOS
+        run: |
+          git clone --depth=1 https://github.com/istoreos/istoreos.git
+
+      - name: 设置 feeds
+        run: |
+          cd istoreos
+          echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git;main" >> feeds.conf.default
+          echo "src-git passwall_luci https://github.com/xiaorouji/openwrt-passwall.git;main" >> feeds.conf.default
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          ./scripts/feeds update passwall_packages passwall_luci
+          ./scripts/feeds install -a -p passwall_packages
+          ./scripts/feeds install -a -p passwall_luci
+
+      - name: 生成配置文件
+        run: |
+          cd istoreos
+          
+          # 基本配置
+          cat > .config <<EOF
+          CONFIG_TARGET_${{ inputs.target_arch == 'x86_64' && 'x86' || 'mediatek' }}=y
+          CONFIG_TARGET_${{ inputs.target_arch == 'x86_64' && 'x86_64' || (inputs.target_arch == 'aarch64_cortex-a53' && 'mediatek_mt7622' || 'mediatek_filogic') }}=y
+          CONFIG_TARGET_${{ inputs.target_arch == 'x86_64' && 'x86_64_DEVICE_generic' || (inputs.target_arch == 'aarch64_cortex-a53' && 'mediatek_mt7622_DEVICE_xiaomi_redmi-router-ax6s' || 'mediatek_filogic_DEVICE_xiaomi_redmi-router-ax6000') }}=y
+          CONFIG_PACKAGE_luci-app-passwall=y
+          CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ChinaDNS_NG=y
+          CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Dns2socks=y
+          EOF
+          
+          # 添加用户选择的组件
+          if [ "${{ inputs.iptables }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_Iptables_Transparent_Proxy=y" >> .config
+          fi
+          
+          if [ "${{ inputs.nftables }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_Nftables_Transparent_Proxy=y" >> .config
+          fi
+          
+          if [ "${{ inputs.geoview }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Geoview=y" >> .config
+          fi
+          
+          if [ "${{ inputs.haproxy }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy=y" >> .config
+          fi
+          
+          if [ "${{ inputs.hysteria }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Hysteria=y" >> .config
+          fi
+          
+          if [ "${{ inputs.naiveproxy }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_NaiveProxy=y" >> .config
+          fi
+          
+          if [ "${{ inputs.shadowsocks_libev_client }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Client=y" >> .config
+          fi
+          
+          if [ "${{ inputs.shadowsocks_libev_server }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Libev_Server=y" >> .config
+          fi
+          
+          if [ "${{ inputs.shadowsocks_rust_client }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Client=y" >> .config
+          fi
+          
+          if [ "${{ inputs.shadowsocks_rust_server }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks_Rust_Server=y" >> .config
+          fi
+          
+          if [ "${{ inputs.shadowsocksr_libev_client }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Client=y" >> .config
+          fi
+          
+          if [ "${{ inputs.shadowsocksr_libev_server }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_ShadowsocksR_Libev_Server=y" >> .config
+          fi
+          
+          if [ "${{ inputs.shadow_tls }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadow_TLS=y" >> .config
+          fi
+          
+          if [ "${{ inputs.simple_obfs }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Simple_Obfs=y" >> .config
+          fi
+          
+          if [ "${{ inputs.singbox }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=y" >> .config
+          fi
+          
+          if [ "${{ inputs.trojan_plus }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Trojan_Plus=y" >> .config
+          fi
+          
+          if [ "${{ inputs.tuic_client }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_tuic_client=y" >> .config
+          fi
+          
+          if [ "${{ inputs.v2ray_geodata }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Geodata=y" >> .config
+          fi
+          
+          if [ "${{ inputs.v2ray_plugin }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray_Plugin=y" >> .config
+          fi
+          
+          if [ "${{ inputs.xray }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y" >> .config
+          fi
+          
+          if [ "${{ inputs.xray_plugin }}" == "true" ]; then
+            echo "CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray_Plugin=y" >> .config
+          fi
+          
+          # 添加一些必要的编译选项
+          cat >> .config <<EOF
+          # 基本构建选项
+          CONFIG_DEVEL=y
+          CONFIG_TOOLCHAINOPTS=y
+          CONFIG_CCACHE=y
+          CONFIG_KERNEL_BUILD_USER="PassWall Builder"
+          CONFIG_KERNEL_BUILD_DOMAIN="istoreos.com"
+          EOF
+          
+          # 运行defconfig确保配置有效
+          make defconfig
+
+      - name: 下载源码
+        run: |
+          cd istoreos
+          make download -j8 || true
+
+      - name: 编译 PassWall
+        id: compile
+        run: |
+          cd istoreos
+          make package/feeds/passwall_luci/luci-app-passwall/compile -j$(nproc) V=s || echo "编译失败，将使用预编译包"
+          
+          # 检查是否成功编译
+          if find bin/packages -name "luci-app-passwall*.ipk" | grep -q .; then
+            echo "编译成功，找到 PassWall IPK 文件"
+            echo "compile_success=true" >> $GITHUB_OUTPUT
+          else
+            echo "未找到编译后的 PassWall IPK 文件，将使用预编译包"
+            echo "compile_success=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 准备预编译包
+        if: steps.compile.outputs.compile_success != 'true'
+        run: |
+          mkdir -p passwall-ipk
+          
+          # 下载最新的PassWall IPK
+          wget -O passwall-ipk/luci-app-passwall.ipk \
+            https://github.com/xiaorouji/openwrt-passwall/releases/download/4.71-1/luci-app-passwall_4.71-1_all.ipk
+          
+          # 下载依赖包
+          dependencies=("brook" "chinadns-ng" "dns2socks" "dns2tcp" "gn" "hysteria" 
+                        "ipt2socks" "microsocks" "naiveproxy" "pdnsd-alt" "shadowsocks-libev" 
+                        "shadowsocks-rust" "shadowsocksr-libev" "simple-obfs" "sing-box" 
+                        "tcping" "trojan-go" "trojan-plus" "v2ray-core" "v2ray-geodata" 
+                        "v2ray-plugin" "xray-core" "xray-plugin")
+          
+          for dep in "${dependencies[@]}"; do
+            wget -O passwall-ipk/${dep}.ipk \
+              https://github.com/xiaorouji/openwrt-passwall/releases/download/packages/${dep}_latest_all.ipk || true
+          done
+
+      - name: 创建安装包
+        run: |
+          # 创建IPK目录
+          mkdir -p passwall-ipk
+          
+          # 如果编译成功，复制编译的IPK文件
+          if [ "${{ steps.compile.outputs.compile_success }}" == "true" ]; then
+            find istoreos/bin/packages -name "luci-app-passwall*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "*passwall*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "chinadns-ng*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "dns2socks*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "ipt2socks*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "microsocks*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "shadowsocks*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "shadowsocksr*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "simple-obfs*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "tcping*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "trojan*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "v2ray*.ipk" -exec cp {} passwall-ipk/ \;
+            find istoreos/bin/packages -name "xray*.ipk" -exec cp {} passwall-ipk/ \;
+          fi
+          
+          # 创建安装脚本
+          cat > passwall-install.sh <<EOF
+          #!/bin/sh
+          # PassWall installer for iStoreOS
+          
+          echo "开始安装 PassWall for iStoreOS..."
+          
+          # 创建临时目录
+          mkdir -p /tmp/passwall-install
+          cd /tmp/passwall-install
+          
+          # 安装依赖
+          echo "正在更新软件包列表..."
+          opkg update
+          
+          echo "正在安装基本依赖..."
+          opkg install libuci-lua luci-compat luci-lib-jsonc
+          
+          # 安装PassWall及其依赖
+          echo "正在安装PassWall及其依赖..."
+          cd /tmp
+          opkg install /tmp/passwall-ipk/*.ipk
+          
+          # 重启网络和服务
+          echo "正在重启服务..."
+          /etc/init.d/rpcd restart
+          /etc/init.d/network restart
+          
+          # 清理
+          rm -rf /tmp/passwall-install
+          echo "PassWall 安装完成！请在LuCI界面中访问服务→PassWall"
+          EOF
+          
+          chmod +x passwall-install.sh
+          
+          # 创建tar包
+          tar -czf passwall-package.tar.gz passwall-ipk passwall-install.sh
+          
+          # 创建自解压安装包
+          cat > passwall-installer.run <<EOF
+          #!/bin/sh
+          # PassWall for iStoreOS 自解压安装包
+          # 由GitHub Actions自动构建
+          
+          echo "正在解压PassWall安装包..."
+          ARCHIVE=\`awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' \$0\`
+          tail -n+\$ARCHIVE \$0 | tar -xz -C /tmp
+          echo "正在运行安装脚本..."
+          /tmp/passwall-install.sh
+          exit 0
+          __ARCHIVE_BELOW__
+          EOF
+          
+          cat passwall-package.tar.gz >> passwall-installer.run
+          chmod +x passwall-installer.run
+          
+          # 创建版本信息文件
+          echo "构建时间: $(date)" > version.txt
+          echo "目标架构: ${{ inputs.target_arch }}" >> version.txt
+          echo "GitHub Actions运行ID: ${{ github.run_id }}" >> version.txt
+          echo "提交SHA: ${{ github.sha }}" >> version.txt
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v3
+        with:
+          name: passwall-installer-${{ inputs.target_arch }}
+          path: |
+            passwall-installer.run
+            version.txt
+
+      - name: 创建发布
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: passwall-${{ inputs.target_arch }}-${{ github.run_id }}
+          name: PassWall for iStoreOS (${{ inputs.target_arch }}) - Build ${{ github.run_id }}
+          files: |
+            passwall-installer.run
+            version.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
