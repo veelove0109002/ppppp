@@ -291,8 +291,8 @@ jobs:
             exit 1
           fi
           
-          # 创建安装脚本
-          cat > passwall-install.sh <<'EOF'
+          # 创建安装脚本 - 使用临时文件
+          cat > install_script.txt << 'EOFSCRIPT'
 #!/bin/sh
 # PassWall installer for iStoreOS
 
@@ -337,7 +337,10 @@ echo "正在重启服务..."
 # 清理
 rm -rf /tmp/passwall-install
 echo "PassWall 安装完成！请在LuCI界面中访问服务→PassWall"
-EOF
+EOFSCRIPT
+
+          # 复制到最终文件
+          cp install_script.txt passwall-install.sh
           
           chmod +x passwall-install.sh
           
@@ -347,9 +350,8 @@ EOF
           TAR_SIZE=$(du -sh passwall-package.tar.gz | cut -f1)
           echo "tar包大小: $TAR_SIZE"
           
-          # 创建自解压安装包
-          echo "创建自解压安装包..."
-          cat > passwall-installer.run <<'EOF'
+          # 创建自解压安装包 - 使用临时文件
+          cat > installer_script.txt << 'EOFINSTALLER'
 #!/bin/sh
 # PassWall for iStoreOS 自解压安装包
 # 由GitHub Actions自动构建
@@ -361,7 +363,10 @@ echo "正在运行安装脚本..."
 /tmp/passwall-install.sh
 exit 0
 __ARCHIVE_BELOW__
-EOF
+EOFINSTALLER
+
+          # 复制到最终文件
+          cp installer_script.txt passwall-installer.run
           
           # 使用版本号命名安装包
           INSTALLER_FILENAME="passwall-installer-${{ inputs.target_arch }}-${{ env.LATEST_VERSION }}.run"
